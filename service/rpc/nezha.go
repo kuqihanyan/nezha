@@ -17,7 +17,7 @@ type NezhaHandler struct {
 
 // ReportState ..
 func (s *NezhaHandler) ReportState(c context.Context, r *pb.State) (*pb.Receipt, error) {
-	var clientID string
+	var clientID uint64
 	var err error
 	if clientID, err = s.Auth.Check(c); err != nil {
 		return nil, err
@@ -32,17 +32,10 @@ func (s *NezhaHandler) ReportState(c context.Context, r *pb.State) (*pb.Receipt,
 
 // Heartbeat ..
 func (s *NezhaHandler) Heartbeat(r *pb.Beat, stream pb.NezhaService_HeartbeatServer) error {
-	var clientID string
+	var clientID uint64
 	var err error
 	defer log.Printf("Heartbeat exit server:%v err:%v", clientID, err)
 	if clientID, err = s.Auth.Check(stream.Context()); err != nil {
-		return err
-	}
-	// 默认连接后先上报10分钟
-	err = stream.Send(&pb.Command{
-		Type: model.MTReportState,
-	})
-	if err != nil {
 		return err
 	}
 	// 放入在线服务器列表
@@ -59,7 +52,7 @@ func (s *NezhaHandler) Heartbeat(r *pb.Beat, stream pb.NezhaService_HeartbeatSer
 
 // Register ..
 func (s *NezhaHandler) Register(c context.Context, r *pb.Host) (*pb.Receipt, error) {
-	var clientID string
+	var clientID uint64
 	var err error
 	if clientID, err = s.Auth.Check(c); err != nil {
 		return nil, err

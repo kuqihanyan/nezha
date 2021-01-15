@@ -1,13 +1,7 @@
-/**
- * Converts a long string of bytes into a readable format e.g KB, MB, GB, TB, YB
- * 
- * @param {Int} num The number of bytes.
- */
 function readableBytes(bytes) {
     var i = Math.floor(Math.log(bytes) / Math.log(1024)),
         sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-
-    return (bytes / Math.pow(1024, i)).toFixed(2) * 1 + ' ' + sizes[i];
+    return (bytes / Math.pow(1024, i)).toFixed(0) + ' ' + sizes[i];
 }
 
 const confirmBtn = $('.mini.confirm.modal .positive.button')
@@ -42,7 +36,10 @@ function showFormModal(modelSelector, formID, URL, getData) {
             form.children('.message').remove()
             btn.toggleClass('loading')
             const data = getData ? getData() : $(formID).serializeArray().reduce(function (obj, item) {
-                obj[item.name] = (item.name.endsWith('_id') || item.name === 'id') ? parseInt(item.value) : item.value;
+                obj[item.name] = (item.name.endsWith('_id') ||
+                    item.name === 'id' || item.name === 'ID' ||
+                    item.name === 'RequestType' || item.name === 'RequestMethod' ||
+                    item.name === 'DisplayIndex') ? parseInt(item.value) : item.value;
                 return obj;
             }, {});
             $.post(URL, JSON.stringify(data)).done(function (resp) {
@@ -70,11 +67,41 @@ function showFormModal(modelSelector, formID, URL, getData) {
     }).modal('show')
 }
 
+function addOrEditAlertRule(rule) {
+    const modal = $('.rule.modal')
+    modal.children('.header').text((rule ? '修改' : '添加') + '报警规则')
+    modal.find('.positive.button').html(rule ? '修改<i class="edit icon"></i>' : '添加<i class="add icon"></i>')
+    modal.find('input[name=ID]').val(rule ? rule.ID : null)
+    modal.find('input[name=Name]').val(rule ? rule.Name : null)
+    modal.find('textarea[name=RulesRaw]').val(rule ? rule.RulesRaw : null)
+    if (rule && rule.Enable) {
+        modal.find('.ui.rule-enable.checkbox').checkbox('set checked')
+    } else {
+        modal.find('.ui.rule-enable.checkbox').checkbox('set unchecked')
+    }
+    showFormModal('.rule.modal', '#ruleForm', '/api/alert-rule')
+}
+
+function addOrEditNotification(notification) {
+    const modal = $('.notification.modal')
+    modal.children('.header').text((notification ? '修改' : '添加') + '通知方式')
+    modal.find('.positive.button').html(notification ? '修改<i class="edit icon"></i>' : '添加<i class="add icon"></i>')
+    modal.find('input[name=ID]').val(notification ? notification.ID : null)
+    modal.find('input[name=Name]').val(notification ? notification.Name : null)
+    modal.find('input[name=URL]').val(notification ? notification.URL : null)
+    modal.find('textarea[name=RequestBody]').val(notification ? notification.RequestBody : null)
+    modal.find('select[name=RequestMethod]').val(notification ? notification.RequestMethod : 1)
+    modal.find('select[name=RequestType]').val(notification ? notification.RequestType : 1)
+    if (notification && notification.VerifySSL) {
+        modal.find('.ui.nf-ssl.checkbox').checkbox('set checked')
+    } else {
+        modal.find('.ui.nf-ssl.checkbox').checkbox('set unchecked')
+    }
+    showFormModal('.notification.modal', '#notificationForm', '/api/notification')
+}
+
 function addOrEditServer(server) {
     const modal = $('.server.modal')
-    if (server) {
-        server = JSON.parse(server)
-    }
     modal.children('.header').text((server ? '修改' : '添加') + '服务器')
     modal.find('.positive.button').html(server ? '修改<i class="edit icon"></i>' : '添加<i class="add icon"></i>')
     modal.find('input[name=id]').val(server ? server.ID : null)

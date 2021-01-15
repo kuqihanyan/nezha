@@ -2,7 +2,6 @@ package controller
 
 import (
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/naiba/nezha/model"
 	"github.com/naiba/nezha/pkg/mygin"
-	pb "github.com/naiba/nezha/proto"
 	"github.com/naiba/nezha/service/dao"
 )
 
@@ -29,7 +27,8 @@ func (cp *commonPage) home(c *gin.Context) {
 	dao.ServerLock.RLock()
 	defer dao.ServerLock.RUnlock()
 	data := gin.H{
-		"Servers": dao.ServerList,
+		"Servers":    dao.SortedServerList,
+		"CustomCode": dao.Conf.Site.CustomCode,
 	}
 	u, ok := c.Get(model.CtxKeyAuthorizedUser)
 	if ok {
@@ -53,35 +52,13 @@ func (cp *commonPage) ws(c *gin.Context) {
 		return
 	}
 	defer conn.Close()
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		var mt int
-		var message []byte
-		for {
-			mt, message, err = conn.ReadMessage()
-			if err != nil {
-				wg.Done()
-				break
-			}
-			if mt == websocket.TextMessage && string(message) == "track" {
-				dao.SendCommand(&pb.Command{
-					Type: model.MTReportState,
-				})
-			}
+	for {
+		dao.ServerLock.RLock()
+		err = conn.WriteJSON(dao.SortedServerList)
+		dao.ServerLock.RUnlock()
+		if err != nil {
+			break
 		}
-	}()
-	go func() {
-		for {
-			dao.ServerLock.RLock()
-			err = conn.WriteJSON(dao.ServerList)
-			dao.ServerLock.RUnlock()
-			if err != nil {
-				wg.Done()
-				break
-			}
-			time.Sleep(time.Second * 2)
-		}
-	}()
-	wg.Wait()
+		time.Sleep(time.Second * 2)
+	}
 }

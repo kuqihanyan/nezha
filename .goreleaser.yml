@@ -9,6 +9,13 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
+      - 386
+      - arm
+      - mips
+      - mips64
     main: ./cmd/agent
     binary: nezha-agent
 checksum:
