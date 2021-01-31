@@ -10,9 +10,7 @@ NZ_BASE_PATH="/opt/nezha"
 NZ_DASHBOARD_PATH="${NZ_BASE_PATH}/dashboard"
 NZ_AGENT_PATH="${NZ_BASE_PATH}/agent"
 NZ_AGENT_SERVICE="/etc/systemd/system/nezha-agent.service"
-NZ_VERSION="v1.0.2"
-GITHUB_RAW_URL="raw.githubusercontent.com"
-GITHUB_URL="github.com"
+NZ_VERSION="v0.4.4"
 
 red='\033[0;31m'
 green='\033[0;32m'
@@ -75,24 +73,20 @@ pre_check() {
     fi
 
     ## os_arch
-    if [ $(uname -m | grep 'x86_64') != "" ]; then
+    if [[ $(uname -m | grep 'x86_64') != "" ]]; then
         os_arch="amd64"
-    elif [ $(uname -m | grep 'i686') != "" ]; then
-        os_arch="amd64"
-    elif [ $(uname -m | grep 'i386') != "" ]; then
+    elif [[ $(uname -m | grep 'i386\|i686') != "" ]]; then
         os_arch="386"
-    elif [ $(uname -m | grep 'aarch64') != "" ]; then
+    elif [[ $(uname -m | grep 'aarch64\|armv8b\|armv8l') != "" ]]; then
         os_arch="arm64"
-    elif [ $(uname -m | grep 'armv8b') != "" ]; then
-        os_arch="arm64"
-    elif [ $(uname -m | grep 'armv8l') != "" ]; then
-        os_arch="arm64"
-    elif [ $(uname -m | grep 'arm') != "" ]; then
+    elif [[ $(uname -m | grep 'arm') != "" ]]; then
         os_arch="arm"
     fi
 
-    ## server location
-    if curl -s api.myip.la/json | grep -q 'China'; then
+    if [[ -z "${CN}" ]]; then
+        GITHUB_RAW_URL="raw.githubusercontent.com"
+        GITHUB_URL="github.com"
+    else
         GITHUB_RAW_URL="raw.sevencdn.com"
         GITHUB_URL="hub.fastgit.org"
     fi
@@ -188,7 +182,7 @@ install_agent() {
     fi
     tar xf nezha-agent_linux_${os_arch}.tar.gz &&
         mv nezha-agent $NZ_AGENT_PATH &&
-        rm -rf nezha-agent*
+        rm -rf README.md
 
     modify_agent_config 0
 
@@ -206,25 +200,23 @@ modify_agent_config() {
         return 0
     fi
 
-    echo "请先在管理面板上添加服务器，获取到ID和密钥" &&
-        read -p "请输入一个解析到面板所在IP的域名（不可套CDN）: " nz_rpc_host &&
-        read -p "请输入面板RPC端口: (5555)" nz_rpc_port &&
-        read -p "请输入Agent ID: " nezha_client_id &&
-        read -p "请输入Agent 密钥: " nezha_client_secret
-    if [[ -z "${nz_rpc_host}" || -z "${nezha_client_id}" || -z "${nezha_client_secret}" ]]; then
+    echo "请先在管理面板上添加Agent，记录下密钥" &&
+        read -p "请输入一个解析到面板所在IP的域名（不可套CDN）: " nz_grpc_host &&
+        read -p "请输入面板RPC端口: (5555)" nz_grpc_port &&
+        read -p "请输入Agent 密钥: " nz_client_secret
+    if [[ -z "${nz_grpc_host}" || -z "${nz_client_secret}" ]]; then
         echo -e "${red}所有选项都不能为空${plain}"
         before_show_menu
         return 1
     fi
 
-    if [[ -z "${nz_rpc_port}" ]]; then
-        nz_rpc_port=5555
+    if [[ -z "${nz_grpc_port}" ]]; then
+        nz_grpc_port=5555
     fi
 
-    sed -i "s/nz_rpc_host/${nz_rpc_host}/" ${NZ_AGENT_SERVICE}
-    sed -i "s/nz_rpc_port/${nz_rpc_port}/" ${NZ_AGENT_SERVICE}
-    sed -i "s/nezha_client_id/${nezha_client_id}/" ${NZ_AGENT_SERVICE}
-    sed -i "s/nezha_client_secret/${nezha_client_secret}/" ${NZ_AGENT_SERVICE}
+    sed -i "s/nz_grpc_host/${nz_grpc_host}/" ${NZ_AGENT_SERVICE}
+    sed -i "s/nz_grpc_port/${nz_grpc_port}/" ${NZ_AGENT_SERVICE}
+    sed -i "s/nz_client_secret/${nz_client_secret}/" ${NZ_AGENT_SERVICE}
 
     echo -e "Agent配置 ${green}修改成功，请稍等重启生效${plain}"
 
@@ -262,7 +254,7 @@ modify_dashboard_config() {
         read -p "请输入 GitHub Oauth2 应用的 Client Secret: " nz_github_oauth_client_secret &&
         read -p "请输入站点标题: " nz_site_title &&
         read -p "请输入站点访问端口: (8008)" nz_site_port &&
-        read -p "请输入用于 Agent 接入的 RPC 端口: (5555)" nz_rpc_port
+        read -p "请输入用于 Agent 接入的 RPC 端口: (5555)" nz_grpc_port
     if [[ -z "${nz_admin_ids}" || -z "${nz_github_oauth_client_id}" || -z "${nz_github_oauth_client_secret}" || -z "${nz_site_title}" ]]; then
         echo -e "${red}所有选项都不能为空${plain}"
         before_show_menu
@@ -272,8 +264,8 @@ modify_dashboard_config() {
     if [[ -z "${nz_site_port}" ]]; then
         nz_site_port=8008
     fi
-    if [[ -z "${nz_rpc_port}" ]]; then
-        nz_rpc_port=5555
+    if [[ -z "${nz_grpc_port}" ]]; then
+        nz_grpc_port=5555
     fi
 
     sed -i "s/nz_admin_ids/${nz_admin_ids}/" ${NZ_DASHBOARD_PATH}/data/config.yaml
@@ -281,7 +273,7 @@ modify_dashboard_config() {
     sed -i "s/nz_github_oauth_client_secret/${nz_github_oauth_client_secret}/" ${NZ_DASHBOARD_PATH}/data/config.yaml
     sed -i "s/nz_site_title/${nz_site_title}/" ${NZ_DASHBOARD_PATH}/data/config.yaml
     sed -i "s/nz_site_port/${nz_site_port}/" ${NZ_DASHBOARD_PATH}/docker-compose.yaml
-    sed -i "s/nz_rpc_port/${nz_rpc_port}/" ${NZ_DASHBOARD_PATH}/docker-compose.yaml
+    sed -i "s/nz_grpc_port/${nz_grpc_port}/" ${NZ_DASHBOARD_PATH}/docker-compose.yaml
 
     echo -e "面板配置 ${green}修改成功，请稍等重启生效${plain}"
 
@@ -364,6 +356,16 @@ uninstall_dashboard() {
     fi
 }
 
+show_agent_log() {
+    echo -e "> 获取Agent日志"
+
+    journalctl -xf -u nezha-agent.service
+
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+}
+
 uninstall_agent() {
     echo -e "> 卸载Agent"
 
@@ -410,6 +412,7 @@ show_usage() {
     echo "--------------------------------------------------------"
     echo "./nbdomain.sh install_agent              - 安装监控Agent"
     echo "./nbdomain.sh modify_agent_config        - 修改Agent配置"
+    echo "./nbdomain.sh show_agent_log             - 查看Agent日志"
     echo "./nbdomain.sh uninstall_agent            - 卸载Agen"
     echo "./nbdomain.sh restart_agent              - 重启Agen"
     echo "--------------------------------------------------------"
@@ -431,10 +434,11 @@ show_menu() {
     ————————————————-
     ${green}8.${plain}  安装监控Agent
     ${green}9.${plain}  修改Agent配置
-    ${green}10.${plain} 卸载Agent
-    ${green}11.${plain} 重启Agent
+    ${green}10.${plain} 查看Agent日志
+    ${green}11.${plain} 卸载Agent
+    ${green}12.${plain} 重启Agent
     "
-    echo && read -p "请输入选择 [0-11]: " num
+    echo && read -p "请输入选择 [0-12]: " num
 
     case "${num}" in
     0)
@@ -468,13 +472,16 @@ show_menu() {
         modify_agent_config
         ;;
     10)
-        uninstall_agent
+        show_agent_log
         ;;
     11)
+        uninstall_agent
+        ;;
+    12)
         restart_agent
         ;;
     *)
-        echo -e "${red}请输入正确的数字 [0-11]${plain}"
+        echo -e "${red}请输入正确的数字 [0-12]${plain}"
         ;;
     esac
 }
@@ -509,6 +516,9 @@ if [[ $# > 0 ]]; then
         ;;
     "modify_agent_config")
         modify_agent_config 0
+        ;;
+    "show_agent_log")
+        show_agent_log 0
         ;;
     "uninstall_agent")
         uninstall_agent 0

@@ -1,35 +1,39 @@
 # 哪吒面板
 
-服务期状态监控，报警通知，被动接收，极省资源 64M 小鸡也能装 Agent。
+![dashboard](https://img.shields.io/badge/管理面板-v0.4.4-brightgreen?style=for-the-badge&logo=github) ![GitHub Workflow Status](https://img.shields.io/github/workflow/status/naiba/nezha/Dashboard%20image?label=%E9%9D%A2%E6%9D%BF%E6%9E%84%E5%BB%BA&logo=github&style=for-the-badge) ![Agent release](https://img.shields.io/github/v/release/naiba/nezha?color=brightgreen&label=Agent&style=for-the-badge&logo=github) ![GitHub Workflow Status](https://img.shields.io/github/workflow/status/naiba/nezha/Agent%20release?label=Agent%20%E6%9E%84%E5%BB%BA&logo=github&style=for-the-badge) ![shell](https://img.shields.io/badge/安装脚本-v0.4.4-brightgreen?style=for-the-badge&logo=linux)
 
-|  哪吒面板    |   首页截图1   |   首页截图2   |
-| ---- | ---- | ---- |
-|   <img src="https://s3.ax1x.com/2020/12/08/DzHv6A.jpg" width="2333px" />   | ![首页截图1](https://s3.ax1x.com/2020/12/07/DvTCwD.jpg)     | <img src="https://s3.ax1x.com/2020/12/09/rPF4xJ.png" width="1600px" /> |
+系统状态监控报警、API(SSL证书变更、即将到期、到期)/TCP端口存活/PING 监控、计划任务(可以定时在Agent上执行命令，备份、重启、What ever you want)、极省资源，64M 服务器也能装 agent。
 
 \>> [查看针友列表](https://www.google.com/search?q=%22powered+by+%E5%93%AA%E5%90%92%E9%9D%A2%E6%9D%BF%22&filter=0) (Google)
 
+\>> QQ交流群：955957790
+
+|   默认主题   | DayNight [@JackieSung](https://github.com/JackieSung4ev) |  hotaru [@CokeMine](https://github.com/CokeMine)   |
+| ---- | ---- | ---- |
+|   ![首页截图1](https://s3.ax1x.com/2020/12/07/DvTCwD.jpg)   | <img src="https://s3.ax1x.com/2021/01/20/sfJv2q.jpg"/> | <img src="https://s3.ax1x.com/2020/12/09/rPF4xJ.png" width="1600px" /> |
+
 ## 一键脚本
 
-**建议使用 WatchTower 自动更新面板，Windows监控可以使用nssm配置自启动**
+建议使用 WatchTower 自动更新面板，Windows终端可以使用 nssm 配置自启动（见尾部教程）
 
 - 海外：
 
     ```shell
     curl -L https://raw.githubusercontent.com/naiba/nezha/master/script/install.sh -o nezha.sh && chmod +x nezha.sh
-    sudo ./nezha.sh
+    ./nezha.sh
     ```
 
-- 国内加速：
+- 国内加速：（有缓存可能不是最新的，非作者维护）
 
     ```shell
     curl -L https://raw.sevencdn.com/naiba/nezha/master/script/install.sh -o nezha.sh && chmod +x nezha.sh
-    sudo ./nezha.sh
+    CN=true ./nezha.sh
     ```
 
-## 使用说明
-### 自定义代码
+## 功能说明
 
-可以去版权、改LOGO、加统计代码等等。
+<details>
+  <summary>自定义代码：去版权、改LOGO、改色调、加统计代码等。</summary>
 
 - 默认主题更改进度条颜色示例
 
@@ -75,8 +79,16 @@
     }
     </style>
     ```
+</details>
 
-### 报警通知
+<details>
+    <summary>计划任务：备份脚本、服务重启，等定期运维任务。</summary>
+
+使用此功能可以定期结合 restic、rclone 给服务器备份，或者定期某项重启服务来重置网络连接。
+</details>
+
+<details>
+    <summary>报警通知：CPU、内存、硬盘、带宽、流量实时监控。</summary>
 
 #### 灵活通知方式
 
@@ -91,21 +103,21 @@ URL 里面也可放置占位符，请求时会进行简单的字符串替换。
 1. 添加通知方式
 
     - server酱示例
-      - 备注：server酱
+      - 名称：server酱
       - URL：https://sc.ftqq.com/SCUrandomkeys.send?text=#NEZHA#
       - 请求方式: GET
       - 请求类型: 默认
       - Body: 空
       
     - wxpusher示例，需要关注你的应用
-      - 备注: wxpusher
+      - 名称: wxpusher
       - URL：http://wxpusher.zjiecode.com/api/send/message
       - 请求方式: POST
       - 请求类型: JSON
       - Body: `{"appToken":"你的appToken","topicIds":[],"content":"#NEZHA#","contentType":"1","uids":["你的uid"]}`
 
-    - telegram示例 @haitau 贡献
-      - 备注：telegram机器人消息通知
+    - telegram示例 [@haitau](https://github.com/haitau) 贡献
+      - 名称：telegram机器人消息通知
       - URL：https://api.telegram.org/botXXXXXX/sendMessage?chat_id=YYYYYY&text=#NEZHA#
       - 请求方式: GET
       - 请求类型: 默认
@@ -114,13 +126,13 @@ URL 里面也可放置占位符，请求时会进行简单的字符串替换。
 
 2. 添加一个离线报警
 
-    - 备注：离线通知
+    - 名称：离线通知
     - 规则：`[{"Type":"offline","Min":0,"Max":0,"Duration":10}]`
     - 启用：√
 
 3. 添加一个监控 CPU 持续 10s 超过 50% **且** 内存持续 20s 占用低于 20% 的报警
 
-    - 备注：CPU+内存
+    - 名称：CPU+内存
     - 规则：`[{"Type":"cpu","Min":0,"Max":50,"Duration":10},{"Type":"memory","Min":20,"Max":0,"Duration":20}]`
     - 启用：√
 
@@ -131,12 +143,63 @@ URL 里面也可放置占位符，请求时会进行简单的字符串替换。
   - net_in_speed(入站网速)、net_out_speed(出站网速)、net_all_speed(双向网速)、transfer_in(入站流量)、transfer_out(出站流量)、transfer_all(双向流量)：Min/Max 数值为字节（1kb=1024，1mb = 1024*1024）
   - offline：不支持 Min/Max 参数
 - Duration：持续秒数，监控比较简陋，取持续时间内的 70 采样结果
+- Ignore: `{"1": true, "2":false}` 忽略此规则的服务器ID列表
+</details>
+
+<details>
+    <summary>服务监控：HTTP、SSL证书、ping、TCP 端口等。</summary>
+
+进入 `/monitor` 页面点击新建监控即可，表单下面有相关说明。
+</details>
 
 ## 常见问题
 
-### 数据备份恢复
+<details>
+    <summary>如何进行数据迁移、备份恢复？</summary>
 
 数据储存在 `/opt/nezha` 文件夹中，迁移数据时打包这个文件夹，到新环境解压。然后执行一键脚本安装即可
+</details>
+
+<details>
+    <summary>如何使 OpenWrt/LEDE 自启动？来自 @艾斯德斯</summary>
+
+首先在 release 下载对应的二进制解压后放置到 `/root/nezha-agent`，然后 `chmod +x /root/nezha-agent` 赋予执行权限，然后创建 `/etc/init.d/nezha-agent`：
+
+```
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /root/nezha-agent -i xxx -p 111 -d
+	procd_set_param respawn
+	procd_close_instance
+}
+
+stop_service() {
+    killall nezha-agent
+}
+
+restart() {
+	stop
+	sleep 2
+	start
+}
+```
+
+赋予执行权限 `chmod +x /etc/init.d/nezha-agnt` 然后启动服务 `/etc/init.d/nezha-agent enable && /etc/init.d/nezha-agent start`
+</details>
+
+<details>
+    <summary>首页服务器随机闪烁掉线？</summary>
+
+执行 `ntpdate 0.pool.ntp.org` 同步一下面板部署所在的服务器的时间，ref: [How do I use pool.ntp.org?](https://www.ntppool.org/en/use.html)
+</details>
+
+<details>
+    <summary>提示实时通道断开？</summary>
 
 ### 启用 HTTPS
 
@@ -172,6 +235,7 @@ URL 里面也可放置占位符，请求时会进行简单的字符串替换。
         websocket
     }
     ```
+</details>
 
 ## 社区文章
 
