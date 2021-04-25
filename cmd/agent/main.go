@@ -20,11 +20,11 @@ import (
 	"github.com/p14yground/go-github-selfupdate/selfupdate"
 	"google.golang.org/grpc"
 
+	"github.com/naiba/nezha/cmd/agent/monitor"
 	"github.com/naiba/nezha/model"
 	"github.com/naiba/nezha/pkg/utils"
 	pb "github.com/naiba/nezha/proto"
 	"github.com/naiba/nezha/service/dao"
-	"github.com/naiba/nezha/service/monitor"
 	"github.com/naiba/nezha/service/rpc"
 )
 
@@ -35,11 +35,10 @@ var (
 )
 
 var (
-	reporting      bool
 	client         pb.NezhaServiceClient
 	ctx            = context.Background()
-	delayWhenError = time.Second * 10       // Agent 重连间隔
-	updateCh       = make(chan struct{}, 0) // Agent 自动更新间隔
+	delayWhenError = time.Second * 10    // Agent 重连间隔
+	updateCh       = make(chan struct{}) // Agent 自动更新间隔
 	httpClient     = &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -80,7 +79,7 @@ func main() {
 	dao.Version = version
 
 	var debug bool
-	flag.String("i", "", "unused 旧Agent兼容")
+	flag.String("i", "", "unused 旧Agent配置兼容")
 	flag.BoolVar(&debug, "d", false, "允许不安全连接")
 	flag.StringVar(&server, "s", "localhost:5555", "管理面板RPC端口")
 	flag.StringVar(&clientSecret, "p", "", "Agent连接Secret")
@@ -105,6 +104,8 @@ func run() {
 
 	// 上报服务器信息
 	go reportState()
+	// 更新IP信息
+	go monitor.UpdateIP()
 
 	if version != "" {
 		go func() {
@@ -177,12 +178,14 @@ func doTask(task *pb.Task) {
 		start := time.Now()
 		resp, err := httpClient.Get(task.GetData())
 		if err == nil {
-			result.Delay = float32(time.Now().Sub(start).Microseconds()) / 1000.0
+			// 检查 HTTP Response 状态
+			result.Delay = float32(time.Since(start).Microseconds()) / 1000.0
 			if resp.StatusCode > 399 || resp.StatusCode < 200 {
 				err = errors.New("\n应用错误：" + resp.Status)
 			}
 		}
 		if err == nil {
+			// 检查 SSL 证书信息
 			if strings.HasPrefix(task.GetData(), "https://") {
 				c := cert.NewCert(task.GetData()[8:])
 				if c.Error != "" {
@@ -195,6 +198,7 @@ func doTask(task *pb.Task) {
 				result.Successful = true
 			}
 		} else {
+			// HTTP 请求失败
 			result.Data = err.Error()
 		}
 	case model.TaskTypeICMPPing:
@@ -217,7 +221,7 @@ func doTask(task *pb.Task) {
 		if err == nil {
 			conn.Write([]byte("ping\n"))
 			conn.Close()
-			result.Delay = float32(time.Now().Sub(start).Microseconds()) / 1000.0
+			result.Delay = float32(time.Since(start).Microseconds()) / 1000.0
 			result.Successful = true
 		} else {
 			result.Data = err.Error()
@@ -258,7 +262,7 @@ func doTask(task *pb.Task) {
 			result.Data = string(output)
 			result.Successful = true
 		}
-		result.Delay = float32(time.Now().Sub(startedAt).Seconds())
+		result.Delay = float32(time.Since(startedAt).Seconds())
 	default:
 		log.Printf("Unknown action: %v", task)
 	}
