@@ -1,115 +1,173 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"strings"
 	"time"
+	_ "time/tzdata"
 
-	"github.com/patrickmn/go-cache"
-	"github.com/robfig/cron/v3"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+	"github.com/ory/graceful"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
-	"github.com/naiba/nezha/cmd/dashboard/controller"
-	"github.com/naiba/nezha/cmd/dashboard/rpc"
-	"github.com/naiba/nezha/model"
-	pb "github.com/naiba/nezha/proto"
-	"github.com/naiba/nezha/service/dao"
+	"github.com/nezhahq/nezha/cmd/dashboard/controller"
+	"github.com/nezhahq/nezha/cmd/dashboard/rpc"
+	"github.com/nezhahq/nezha/model"
+	"github.com/nezhahq/nezha/proto"
+	"github.com/nezhahq/nezha/service/singleton"
 )
 
-func init() {
-	shanghai, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		panic(err)
-	}
-
-	// 初始化 dao 包
-	dao.Conf = &model.Config{}
-	dao.Cron = cron.New(cron.WithLocation(shanghai))
-	dao.Crons = make(map[uint64]*model.Cron)
-	dao.ServerList = make(map[uint64]*model.Server)
-	dao.SecretToID = make(map[string]uint64)
-
-	err = dao.Conf.Read("data/config.yaml")
-	if err != nil {
-		panic(err)
-	}
-	dao.DB, err = gorm.Open(sqlite.Open("data/sqlite.db"), &gorm.Config{})
-	if err != nil {
-		panic(err)
-	}
-	if dao.Conf.Debug {
-		dao.DB = dao.DB.Debug()
-	}
-	if dao.Conf.GRPCPort == 0 {
-		dao.Conf.GRPCPort = 5555
-	}
-	dao.Cache = cache.New(5*time.Minute, 10*time.Minute)
-
-	initSystem()
+type DashboardCliParam struct {
+	Version          bool   // 当前版本号
+	ConfigFile       string // 配置文件路径
+	DatebaseLocation string // Sqlite3 数据库文件路径
 }
+
+var (
+	dashboardCliParam DashboardCliParam
+)
 
 func initSystem() {
-	dao.DB.AutoMigrate(model.Server{}, model.User{},
-		model.Notification{}, model.AlertRule{}, model.Monitor{},
-		model.MonitorHistory{}, model.Cron{})
-	dao.NewServiceSentinel()
-
-	loadServers() //加载服务器列表
-	loadCrons()   //加载计划任务
-
-	// 清理旧数据
-	dao.Cron.AddFunc("* 3 * * *", cleanMonitorHistory)
-}
-
-func cleanMonitorHistory() {
-	dao.DB.Delete(&model.MonitorHistory{}, "created_at < ?", time.Now().AddDate(0, 0, -30))
-}
-
-func loadServers() {
-	var servers []model.Server
-	dao.DB.Find(&servers)
-	for _, s := range servers {
-		innerS := s
-		innerS.Host = &model.Host{}
-		innerS.State = &model.HostState{}
-		dao.ServerList[innerS.ID] = &innerS
-		dao.SecretToID[innerS.Secret] = innerS.ID
+	// 初始化管理员账户
+	var usersCount int64
+	if err := singleton.DB.Model(&model.User{}).Count(&usersCount).Error; err != nil {
+		panic(err)
 	}
-	dao.ReSortServer()
-}
-
-func loadCrons() {
-	var crons []model.Cron
-	dao.DB.Find(&crons)
-	var err error
-	for i := 0; i < len(crons); i++ {
-		cr := crons[i]
-		cr.CronID, err = dao.Cron.AddFunc(cr.Scheduler, func() {
-			dao.ServerLock.RLock()
-			defer dao.ServerLock.RUnlock()
-			for j := 0; j < len(cr.Servers); j++ {
-				if dao.ServerList[cr.Servers[j]].TaskStream != nil {
-					dao.ServerList[cr.Servers[j]].TaskStream.Send(&pb.Task{
-						Id:   cr.ID,
-						Data: cr.Command,
-						Type: model.TaskTypeCommand,
-					})
-				} else {
-					dao.SendNotification(fmt.Sprintf("计划任务：%s，服务器：%s 离线，无法执行。", cr.Name, dao.ServerList[cr.Servers[j]].Name), false)
-				}
-			}
-		})
+	if usersCount == 0 {
+		hash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
 		if err != nil {
 			panic(err)
 		}
-		dao.Crons[cr.ID] = &cr
+		admin := model.User{
+			Username: "admin",
+			Password: string(hash),
+		}
+		if err := singleton.DB.Create(&admin).Error; err != nil {
+			panic(err)
+		}
 	}
-	dao.Cron.Start()
+
+	// 启动 singleton 包下的所有服务
+	singleton.LoadSingleton()
+
+	// 每天的3:30 对 监控记录 和 流量记录 进行清理
+	if _, err := singleton.Cron.AddFunc("0 30 3 * * *", singleton.CleanServiceHistory); err != nil {
+		panic(err)
+	}
+
+	// 每小时对流量记录进行打点
+	if _, err := singleton.Cron.AddFunc("0 0 * * * *", singleton.RecordTransferHourlyUsage); err != nil {
+		panic(err)
+	}
 }
 
+// @title           Nezha Monitoring API
+// @version         1.0
+// @description     Nezha Monitoring API
+// @termsOfService  http://nezhahq.github.io
+
+// @contact.name   API Support
+// @contact.url    http://nezhahq.github.io
+// @contact.email  hi@nai.ba
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host      localhost:8008
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey  BearerAuth
+// @in header
+// @name Authorization
+
+// @externalDocs.description  OpenAPI
+// @externalDocs.url          https://swagger.io/resources/open-api/
 func main() {
-	go controller.ServeWeb(dao.Conf.HTTPPort)
-	go rpc.ServeRPC(dao.Conf.GRPCPort)
-	go rpc.DispatchTask(time.Second * 30)
-	dao.AlertSentinelStart()
+	flag.BoolVar(&dashboardCliParam.Version, "v", false, "查看当前版本号")
+	flag.StringVar(&dashboardCliParam.ConfigFile, "c", "data/config.yaml", "配置文件路径")
+	flag.StringVar(&dashboardCliParam.DatebaseLocation, "db", "data/sqlite.db", "Sqlite3数据库文件路径")
+	flag.Parse()
+
+	if dashboardCliParam.Version {
+		fmt.Println(singleton.Version)
+		os.Exit(0)
+	}
+
+	// 初始化 dao 包
+	singleton.InitConfigFromPath(dashboardCliParam.ConfigFile)
+	singleton.InitTimezoneAndCache()
+	singleton.InitDBFromPath(dashboardCliParam.DatebaseLocation)
+	initSystem()
+
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", singleton.Conf.ListenPort))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	singleton.CleanServiceHistory()
+	serviceSentinelDispatchBus := make(chan model.Service) // 用于传递服务监控任务信息的channel
+	go rpc.DispatchTask(serviceSentinelDispatchBus)
+	go rpc.DispatchKeepalive()
+	go singleton.AlertSentinelStart()
+	singleton.NewServiceSentinel(serviceSentinelDispatchBus)
+
+	grpcHandler := rpc.ServeRPC()
+	httpHandler := controller.ServeWeb()
+	controller.InitUpgrader()
+
+	muxHandler := newHTTPandGRPCMux(httpHandler, grpcHandler)
+	http2Server := &http2.Server{}
+	muxServer := &http.Server{Handler: h2c.NewHandler(muxHandler, http2Server), ReadHeaderTimeout: time.Second * 5}
+
+	go dispatchReportInfoTask()
+
+	if err := graceful.Graceful(func() error {
+		log.Println("NEZHA>> Dashboard::START", singleton.Conf.ListenPort)
+		return muxServer.Serve(l)
+	}, func(c context.Context) error {
+		log.Println("NEZHA>> Graceful::START")
+		singleton.RecordTransferHourlyUsage()
+		log.Println("NEZHA>> Graceful::END")
+		return muxServer.Shutdown(c)
+	}); err != nil {
+		log.Printf("NEZHA>> ERROR: %v", err)
+	}
+}
+
+func dispatchReportInfoTask() {
+	time.Sleep(time.Second * 15)
+	singleton.ServerLock.RLock()
+	defer singleton.ServerLock.RUnlock()
+	for _, server := range singleton.ServerList {
+		if server == nil || server.TaskStream == nil {
+			continue
+		}
+		server.TaskStream.Send(&proto.Task{
+			Type: model.TaskTypeReportHostInfo,
+			Data: "",
+		})
+	}
+}
+
+func newHTTPandGRPCMux(httpHandler http.Handler, grpcHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		natConfig := singleton.GetNATConfigByDomain(r.Host)
+		if natConfig != nil {
+			rpc.ServeNAT(w, r, natConfig)
+			return
+		}
+		if r.ProtoMajor == 2 && r.Header.Get("Content-Type") == "application/grpc" &&
+			strings.HasPrefix(r.URL.Path, "/"+proto.NezhaService_ServiceDesc.ServiceName) {
+			grpcHandler.ServeHTTP(w, r)
+			return
+		}
+		httpHandler.ServeHTTP(w, r)
+	})
 }
